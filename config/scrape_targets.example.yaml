@@ -1,0 +1,15 @@
+# Copy to scrape_targets.yaml to enable the scraped source. Left absent by default —
+# the pipeline runs fine on the two API sources alone; this is purely additive.
+#
+# Point `urls` at real posting pages and fill in the CSS selectors that match that
+# site's markup. Check the site's /robots.txt and terms of service before scraping it.
+
+source_name: "example_board"
+base_delay_seconds: 1.5
+urls: []
+  # - "https://example.com/jobs/123"
+  # - "https://example.com/jobs/124"
+selectors:
+  title: "h1.job-title"
+  company: ".company-name"
+  body: ".job-description"

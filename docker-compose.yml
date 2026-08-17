@@ -1,0 +1,127 @@
+name: job-market-pipeline
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: jmp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jmp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpass}
+      POSTGRES_DB: ${POSTGRES_DB:-job_market}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jmp_user} -d ${POSTGRES_DB:-job_market}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    container_name: jmp-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    volumes:
+      - ./migrations:/app/migrations
+    profiles: ["tools"]   # run on demand: docker compose run --rm migrate
+
+  # NOTE: llama-server (Qwen 9B) is NOT in this file on purpose.
+  # You're running it natively on the host (RX580 via Vulkan) in a separate
+  # terminal for GPU access. extractor reaches it over host.docker.internal:8080.
+  # Start it there BEFORE running `docker compose up`, or extractor will fail.
+
+  # CHANGED: pipeline stages no longer carry `profiles: ["pipeline"]`, so a
+  # plain `docker compose up` triggers them directly — no --profile flag
+  # needed. Each stage also now depends on the PREVIOUS stage finishing
+  # successfully (service_completed_successfully), not just on postgres,
+  # so they run strictly in order: scraper -> extractor -> ml -> scorer ->
+  # sheets-writer. `docker compose up` exits once all of them complete.
+
+  scraper:
+    build: .
+    container_name: jmp-scraper
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    command: ["python", "-m", "src.scraper.main"]
+    volumes:
+      - ./docs:/app/docs
+
+  extractor:
+    build: .
+    container_name: jmp-extractor
+    depends_on:
+      postgres:
+        condition: service_healthy
+      scraper:
+        condition: service_completed_successfully
+    env_file: .env
+    # LLM_BASE_URL in .env must point at host.docker.internal:8080
+    # (your natively-run llama.cpp server — see docs/PHASE5.md)
+    command: ["python", "-m", "src.llm_extraction.main"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  ml:
+    build: .
+    container_name: jmp-ml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      extractor:
+        condition: service_completed_successfully
+    env_file: .env
+    command: ["python", "-m", "src.ml.main"]
+    volumes:
+      - ./data:/app/data
+
+  scorer:
+    build: .
+    container_name: jmp-scorer
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ml:
+        condition: service_completed_successfully
+    env_file: .env
+    command: ["python", "-m", "src.scoring.main"]
+    volumes:
+      - ./data:/app/data
+
+  sheets-writer:
+    build: .
+    container_name: jmp-sheets-writer
+    depends_on:
+      postgres:
+        condition: service_healthy
+      scorer:
+        condition: service_completed_successfully
+    env_file: .env
+    volumes:
+      - ./credentials.json:/app/credentials.json:ro
+    command: ["python", "-m", "src.automation.sheets_writer"]
+
+  scheduler:
+    build: .
+    container_name: jmp-scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - ./credentials.json:/app/credentials.json:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["python", "-m", "src.automation.scheduler"]
+    restart: unless-stopped
+    profiles: ["scheduled"]   # run on demand: docker compose --profile scheduled up -d
+
+volumes:
+  pgdata:

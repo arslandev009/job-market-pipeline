@@ -1,0 +1,78 @@
+# GBNF grammar for structured job-posting extraction.
+#
+# Loaded by llama.cpp's grammar-sampling feature so the model's token sampler is
+# structurally *incapable* of producing anything except valid JSON matching this
+# shape — no trailing commas, no wrong enum values, no explanatory prose before/
+# after the JSON. See docs/PHASE5.md and docs/ARCHITECTURE.md §5 for why this
+# beats "prompt for JSON and hope."
+#
+# CHANGE FROM v1: added "seniority_reasoning" as the FIRST field, ahead of
+# "seniority" itself. This is deliberate — under grammar-constrained decoding
+# the model must commit to an enum token immediately, with no room to "think"
+# first, which is exactly when small models hedge to "unknown" on ambiguous
+# titles (see docs/PROGRESS.md, run 2026-08-12: COO and "Entry Level Admin
+# Assistant" both fell back to unknown despite title cues being present).
+# Placing a short free-text reasoning field before the enum gives the model a
+# scratchpad — effectively chain-of-thought smuggled through constrained
+# decoding — without weakening the grammar guarantee on the final JSON shape.
+# We keep the field in the parsed output (not discarded) since it also makes
+# the extraction auditable, which is a nice property for an assessment project.
+#
+# CHANGE 2026-08-16: added "fit_reasoning" and "fit_score" as the LAST two
+# fields (after required_skills). Same scratchpad-before-commitment pattern as
+# seniority_reasoning above — the model writes a short free-text comparison of
+# the posting's actual requirements against the candidate's skills BEFORE
+# committing to the bounded fit-score number, so it can reason about domain
+# relevance (e.g. "LLMs/NLP/embeddings" matching a candidate skill of "AI/ML")
+# instead of being forced to output a number with no room to think first. This
+# fully replaces the old hardcoded formula_scorer.py exact-string matching for
+# postings that make it through extraction; formula_scorer.py remains only as
+# a fallback for postings where extraction fails or fit_score comes back null.
+#
+# NOTE: rule names below use hyphens, never underscores — GBNF rule names are
+# required to be a dashed lowercase word (llama.cpp's own grammar docs). This
+# only applies to rule names themselves; underscores inside quoted string
+# literals (e.g. "remote_or_onsite") are ordinary terminal text and unaffected.
+#
+# NOTE: the root rule is kept on a single line deliberately — llama.cpp's grammar
+# parser only allows newlines between whole rules, inside parentheses, or right
+# after "|" — not mid-sequence in the middle of an unparenthesized rule body.
+
+root ::= "{" ws "\"seniority_reasoning\":" ws reasoning-string "," ws "\"seniority\":" ws seniority "," ws "\"remote_or_onsite\":" ws remote "," ws "\"salary_min\":" ws int-or-null "," ws "\"salary_max\":" ws int-or-null "," ws "\"location\":" ws string-or-null "," ws "\"required_skills\":" ws string-array "," ws "\"fit_reasoning\":" ws reasoning-string "," ws "\"fit_score\":" ws fit-score ws "}"
+
+seniority ::= "\"intern\"" | "\"junior\"" | "\"mid\"" | "\"senior\"" | "\"lead\"" | "\"unknown\""
+remote ::= "\"remote\"" | "\"onsite\"" | "\"hybrid\"" | "\"unknown\""
+
+# Capped shorter than the general-purpose "string" rule below (roughly 12-15
+# words) — this is a one-clause justification, not a paragraph. Keeping it
+# short also protects the token budget: every extra generated token here is
+# one you're paying for across all postings. Reused for both
+# seniority_reasoning and fit_reasoning — same length budget applies to both.
+# CHANGE 2026-08-16: excluded control characters (0x00-0x1F, e.g. raw
+# newlines/tabs) from both char rules below. Previously [^"\\] allowed the
+# model to emit a literal, unescaped control character straight into a JSON
+# string field — invalid per the JSON spec, which requires those to be
+# escaped (\n, \t, etc.), but nothing in the grammar was stopping it. This
+# was the actual cause of "Invalid control character" json.loads() failures
+# (e.g. postings with "München" or line breaks in location/skills text) —
+# not a UTF-8/encoding issue, a literal raw control byte slipping through.
+reasoning-string ::= "\"" reasoning-char{1,120} "\""
+reasoning-char ::= [^"\\\x00-\x1F]
+
+int-or-null ::= null | int
+int ::= "-"? [0-9]+
+null ::= "null"
+
+string-or-null ::= null | string
+string ::= "\"" char* "\""
+char ::= [^"\\\x00-\x1F] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F]{4})
+
+string-array ::= "[" ws (string (ws "," ws string){0,7})? ws "]"
+
+# fit_score is a decimal 0.0-1.0, one decimal digit of precision — enough
+# resolution to rank postings meaningfully without giving the model room to
+# output nonsense like 1.5 or -0.2. Whole-number 0 and 1 are also valid
+# (matches "0" and "1" alone, no forced decimal point).
+fit-score ::= "0" ("." [0-9])? | "1" (".0")? | "0." [0-9]
+
+ws ::= [ \t\n]*

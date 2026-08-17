@@ -12,10 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY requirements-pipeline.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=cache,target=/root/.cache/ms-playwright \
-    pip install -r requirements.txt \
+    pip install -r requirements-pipeline.txt \
     && playwright install --with-deps chromium
 
 COPY src/ ./src/

@@ -89,18 +89,52 @@ def run(n: int) -> None:
                 continue
 
             rating_raw = input("Fit rating 1-5 (blank to skip): ").strip()
-            rating = int(rating_raw) if rating_raw.isdigit() else None
+            rating = int(rating_raw) if rating_raw.isdigit() and 1 <= int(rating_raw) <= 5 else None
 
             posting.category_label = category
             posting.category_label_source = "manual"
             if rating is not None:
                 posting.manual_rating = rating
+            saved_id = posting.id
+            session.commit()  # saved now: a later Ctrl+C or closed terminal cannot lose this label
+            print(f"  saved [{saved_id}] -> {category}" + (f", rating {rating}" if rating is not None else ""))
 
         print("\nDone. Train the classifier with: docker compose run --rm ml python -m scripts.train_classifier")
+
+
+def fix(posting_id: int) -> None:
+    """Re-label one posting (for a slip made earlier). Saved immediately."""
+    configure_logging()
+    with session_scope() as session:
+        posting = session.get(Posting, posting_id)
+        if posting is None:
+            print(f"No posting with id {posting_id}.")
+            return
+        print(f"[{posting.id}] {posting.title} @ {posting.company}")
+        print(f"current: category={posting.category_label} source={posting.category_label_source} "
+              f"rating={posting.manual_rating}")
+        print(clean_html_text(posting.raw_text)[:400])
+        print("-" * 70)
+        category = _prompt_category()
+        if not category:
+            print("Unchanged.")
+            return
+        rating_raw = input("Fit rating 1-5 (blank = keep current, 0 = clear): ").strip()
+        posting.category_label = category
+        posting.category_label_source = "manual"
+        if rating_raw == "0":
+            posting.manual_rating = None
+        elif rating_raw.isdigit() and 1 <= int(rating_raw) <= 5:
+            posting.manual_rating = int(rating_raw)
+        print(f"Saved [{posting_id}] -> {category}, rating {posting.manual_rating}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=30, help="How many postings to label this batch")
+    parser.add_argument("--fix", type=int, metavar="ID", help="Re-label one posting by id instead of starting a batch")
     args = parser.parse_args()
-    run(args.n)
+    if args.fix is not None:
+        fix(args.fix)
+    else:
+        run(args.n)

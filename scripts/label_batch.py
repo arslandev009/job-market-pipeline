@@ -9,9 +9,8 @@ Run: python -m scripts.label_batch --n 30
 CHANGE FROM v1: category is now a fixed numbered menu instead of free text.
 Free-text input meant typos/casing variants ("admin" vs "Admin" vs
 "administrative") would silently fragment into separate classes for the
-classifier — a fixed menu removes that risk. The categories below are drawn
-from the k=4 clustering result (2026-08-13, docs/PROGRESS.md), not guessed
-blind — they're grounded in what's actually in this dataset.
+classifier — a fixed menu removes that risk. The categories below were chosen on 2026-11-04 for the M2 evaluation;
+revisit them if a labelling batch shows a class that never occurs.
 """
 from __future__ import annotations
 
@@ -26,10 +25,12 @@ from src.common.models import Posting
 from src.common.text_clean import clean_html_text
 
 CATEGORIES = [
-    "admin_support",
-    "tech_product",
-    "customer_retail",
-    "executive_hr",
+    "software_engineering",
+    "data_ai_ml",
+    "devops_cloud_security",
+    "sales_marketing",
+    "customer_support_admin",
+    "management_finance_hr",
     "other",
 ]
 

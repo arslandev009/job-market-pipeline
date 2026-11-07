@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -59,11 +60,19 @@ def duplicate_groups(texts: np.ndarray, threshold: float = DUP_THRESHOLD) -> tup
 
 
 def make_models() -> dict:
-    def pipe(clf):
-        return lambda: Pipeline([("tfidf", build_vectorizer()), ("clf", clf())])
+    """Every setting is fixed in advance (nothing is tuned on a test fold)."""
+    def pipe(clf, max_features: int = 800):
+        return lambda: Pipeline([("tfidf", build_vectorizer(max_features)), ("clf", clf())])
+
+    def lr(c: float):
+        return lambda: LogisticRegression(C=c, max_iter=2000, class_weight="balanced")
+
     return {
         "baseline: most frequent class": pipe(lambda: DummyClassifier(strategy="most_frequent")),
-        "logistic regression (TF-IDF)": pipe(lambda: LogisticRegression(max_iter=2000, class_weight="balanced")),
+        "logistic regression C=1, 800 features": pipe(lr(1.0)),
+        "logistic regression C=3, 800 features": pipe(lr(3.0)),
+        "logistic regression C=10, 800 features": pipe(lr(10.0)),
+        "logistic regression C=3, 3000 features": pipe(lr(3.0), 3000),
         "random forest (current model)": pipe(
             lambda: RandomForestClassifier(n_estimators=200, random_state=42, class_weight="balanced")),
     }
@@ -113,11 +122,11 @@ def evaluate(df: pd.DataFrame, repeats: int = 5, shuffle_repeats: int = 3, n_spl
     res["report"] = classification_report(y, pred0, labels=classes, output_dict=True, zero_division=0)
     res["confusion"] = confusion_matrix(y, pred0, labels=classes).tolist()
 
-    rf = models["random forest (current model)"]
+    best_factory = models[best]
     shuffled = []
     for k in range(shuffle_repeats):
         ys = np.random.default_rng(1000 + k).permutation(y)
-        pred = oof_predict(rf, texts, ys, groups, seed=k, n_splits=n_splits)
+        pred = oof_predict(best_factory, texts, ys, groups, seed=k, n_splits=n_splits)
         shuffled.append(f1_score(ys, pred, labels=classes, average="macro", zero_division=0))
     res["shuffled_macro_f1"] = shuffled
     res["majority_share"] = max(counts.values()) / len(y)
@@ -126,13 +135,36 @@ def evaluate(df: pd.DataFrame, repeats: int = 5, shuffle_repeats: int = 3, n_spl
 
 # ---------------------------------------------------------------- report
 
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    p = k / n
+    denom = 1 + z * z / n
+    centre = p + z * z / (2 * n)
+    adj = z * (p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5
+    return (centre - adj) / denom, (centre + adj) / denom
+
+
+def read_llm_check(path: Path) -> tuple[int, int] | None:
+    """(agreements, checked) from docs/LLM_LABEL_CHECK.md written by scripts/llm_vs_gold.py, if it exists."""
+    if not path.exists():
+        return None
+    m = re.search(r"agrees with the hand label on \*\*(\d+) of (\d+)\*\*", path.read_text(encoding="utf-8"))
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
 def _ms(values) -> str:
     v = np.array(values, dtype=float)
     return "n/a" if np.isnan(v).all() else f"{np.nanmean(v):.3f} ± {np.nanstd(v):.3f}"
 
 
-def render_markdown(res: dict, today: str) -> str:
+def render_markdown(res: dict, today: str, llm_check: tuple[int, int] | None = None) -> str:
     cls = res["classes"]
+    if llm_check:
+        k, n = llm_check
+        lo, hi = wilson(k, n)
+        llm_note = (f"On {n} hand-labelled postings the LLM chose the same category as the hand label {k} times "
+                    f"({k / n:.0%}, 95% interval {lo:.0%} to {hi:.0%}); see `docs/LLM_LABEL_CHECK.md`.")
+    else:
+        llm_note = "How often the LLM label is wrong has not been measured yet."
     lines = [
         "# Classifier evaluation (M2)", "",
         f"Generated {today} by `scripts/evaluate_classifier.py`. Every number below comes from that run.", "",
@@ -141,8 +173,7 @@ def render_markdown(res: dict, today: str) -> str:
         f"(`{'`, `'.join(cls)}`).",
         f"- **Labels: {res['n_gold']} by hand (gold), {res['n_silver']} by a local LLM (Qwen3.5-9B, silver).** "
         "Scores measured against the silver labels show how well the classifier reproduces the LLM's labels, "
-        "not how well it matches the truth. How often the LLM label is wrong has not been measured on a large "
-        "enough sample yet.",
+        "not how well it matches the truth. " + llm_note,
         "- Class counts: " + ", ".join(f"{k} {v}" for k, v in res["class_counts"].items()) + ".", "",
         "## Method", "",
         f"- Repeated stratified group k-fold: {res['n_splits']} folds x {res['repeats']} repeats "
@@ -159,6 +190,9 @@ def render_markdown(res: dict, today: str) -> str:
     for name, m in res["models"].items():
         lines.append(f"| {name} | {_ms(m['acc'])} | {_ms(m['macro_f1'])} | {_ms(m['gold_acc'])} | {_ms(m['silver_acc'])} |")
     lines += ["",
+              f"The best configuration (**{res['best']}**) was picked by macro-F1 on this same cross-validation, "
+              "so its score is slightly optimistic. All settings were fixed in advance; nothing was tuned on a test fold.",
+              "",
               f"Accuracy of always guessing the most frequent class: {res['majority_share']:.3f}. "
               "Macro-F1 averages the classes equally, so a model that ignores small classes scores low on it.", "",
               f"## Per class ({res['best']}, first repeat)", "",
@@ -171,8 +205,9 @@ def render_markdown(res: dict, today: str) -> str:
     for c, row in zip(cls, res["confusion"]):
         lines.append(f"| {c} | " + " | ".join(str(v) for v in row) + " |")
     lines += ["", "## Leakage control", "",
-              f"Random forest with the labels **shuffled**: macro-F1 {_ms(res['shuffled_macro_f1'])} "
-              f"(the real labels give {_ms(res['models']['random forest (current model)']['macro_f1'])}). "
+              f"{res['best']} with the labels **shuffled**: macro-F1 {_ms(res['shuffled_macro_f1'])} "
+              f"(the real labels give {_ms(res['models'][res['best']]['macro_f1'])}; "
+              f"guessing among {len(cls)} classes gives about {1 / len(cls):.2f}). "
               "A score close to chance after shuffling means the pipeline learns from the labels and does not leak "
               "them through the folds.", "",
               "## Limitations", "",
@@ -221,7 +256,7 @@ def main() -> int:
         print("Not enough labelled data for a meaningful evaluation.")
         return 1
     res = evaluate(df, repeats=a.repeats)
-    md = render_markdown(res, date.today().isoformat())
+    md = render_markdown(res, date.today().isoformat(), read_llm_check(OUT_PATH.parent / "LLM_LABEL_CHECK.md"))
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUT_PATH.write_text(md, encoding="utf-8")
     print(md)

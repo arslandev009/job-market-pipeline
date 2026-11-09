@@ -74,9 +74,9 @@ def run() -> None:
         clf_bundle = load_classifier()
         if clf_bundle:
             clf, vectorizer = clf_bundle
-            unlabeled_mask = df["category_label_source"].isna() | (
-                df["category_label_source"] != "manual"
-            )
+            # Hand ('manual') and LLM ('llm') labels are never overwritten by the model's own predictions:
+            # that would erase the silver labels and later feed the model its own output back.
+            unlabeled_mask = ~df["category_label_source"].isin(["manual", "llm"])
             to_predict = df[unlabeled_mask]
             if not to_predict.empty:
                 predictions = predict_categories(to_predict, clf, vectorizer)

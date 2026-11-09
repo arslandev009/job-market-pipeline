@@ -1,5 +1,5 @@
 """
-Category classifier: a small RandomForest over TF-IDF features, trained on
+Category classifier: a logistic regression over TF-IDF features, trained on
 whatever postings you've hand-labeled (via scripts/label_batch.py) and applied
 to everything else.
 
@@ -18,8 +18,7 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import cross_val_score
+from sklearn.linear_model import LogisticRegression
 
 from src.common.logging import get_logger
 from src.ml.features import build_vectorizer
@@ -33,7 +32,7 @@ VECTORIZER_PATH = MODEL_DIR / "category_vectorizer.joblib"
 MIN_LABELED_EXAMPLES = 20
 
 
-def train_classifier(labeled_df: pd.DataFrame) -> tuple[RandomForestClassifier, object] | None:
+def train_classifier(labeled_df: pd.DataFrame) -> tuple[LogisticRegression, object] | None:
     """labeled_df must have columns: raw_text, category_label."""
     if len(labeled_df) < MIN_LABELED_EXAMPLES:
         logger.warning(
@@ -48,15 +47,10 @@ def train_classifier(labeled_df: pd.DataFrame) -> tuple[RandomForestClassifier, 
     X = vectorizer.fit_transform(labeled_df["raw_text"].fillna(""))
     y = labeled_df["category_label"]
 
-    clf = RandomForestClassifier(n_estimators=200, random_state=42, class_weight="balanced")
+    clf = LogisticRegression(C=3.0, max_iter=2000, class_weight="balanced")
 
-    # 5-fold CV gives an honest accuracy estimate before we trust this model on
-    # unlabeled data — with small label counts this number will be noisy, but
-    # it's still the right thing to report rather than just "trust me."
-    cv_folds = min(5, labeled_df["category_label"].value_counts().min())
-    if cv_folds >= 2:
-        scores = cross_val_score(clf, X, y, cv=cv_folds)
-        logger.info("classifier_cv_accuracy", mean=round(scores.mean(), 3), folds=cv_folds)
+    # The accuracy estimate lives in scripts/evaluate_classifier.py: there the vectorizer is fitted inside
+    # every fold. A cross_val_score on an already-vectorized matrix lets the vocabulary leak into the folds.
 
     clf.fit(X, y)
 
@@ -68,12 +62,12 @@ def train_classifier(labeled_df: pd.DataFrame) -> tuple[RandomForestClassifier, 
     return clf, vectorizer
 
 
-def load_classifier() -> tuple[RandomForestClassifier, object] | None:
+def load_classifier() -> tuple[LogisticRegression, object] | None:
     if not CLASSIFIER_PATH.exists() or not VECTORIZER_PATH.exists():
         return None
     return joblib.load(CLASSIFIER_PATH), joblib.load(VECTORIZER_PATH)
 
 
-def predict_categories(df: pd.DataFrame, clf: RandomForestClassifier, vectorizer) -> pd.Series:
+def predict_categories(df: pd.DataFrame, clf: LogisticRegression, vectorizer) -> pd.Series:
     X = vectorizer.transform(df["raw_text"].fillna(""))
     return pd.Series(clf.predict(X), index=df.index)

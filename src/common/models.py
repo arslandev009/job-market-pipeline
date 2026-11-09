@@ -68,7 +68,7 @@ class Posting(Base):
 
     # Phase 6 — classical ML
     category_label: Mapped[str | None] = mapped_column(String)
-    category_label_source: Mapped[str | None] = mapped_column(String)  # 'manual' | 'model'
+    category_label_source: Mapped[str | None] = mapped_column(String)  # 'manual' | 'llm' | 'model'
     cluster_id: Mapped[int | None] = mapped_column(Integer)
 
     # Phase 7 — scoring

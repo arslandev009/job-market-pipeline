@@ -27,3 +27,5 @@ Thumbs.db
 
 data/models/*.joblib
 *.log
+
+data/models/old_rf_4class/

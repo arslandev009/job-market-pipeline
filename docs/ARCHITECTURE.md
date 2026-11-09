@@ -66,7 +66,7 @@ only ever produce grammatically valid JSON matching our schema — it moves vali
 "catch it after the fact" to "make it structurally impossible to fail." This is a real
 technique used in production structured-extraction pipelines, not a toy trick.
 
-## 6. Why classical ML (TF-IDF + RandomForest/KMeans) instead of another LLM pass?
+## 6. Why classical ML (TF-IDF + logistic regression/KMeans) instead of another LLM pass?
 
 Two reasons, both deliberate:
 

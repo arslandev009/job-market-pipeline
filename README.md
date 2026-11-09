@@ -68,13 +68,30 @@ docker compose run --rm scraper python -m src.eda.run_eda
 docker compose down           # tears everything down cleanly
 ```
 
+## Evaluation (M2)
+
+The category classifier is evaluated in `docs/RESULTS.md`, which `scripts/evaluate_classifier.py` regenerates; the
+numbers below are from 2026-11-09.
+
+- **Data:** 252 English postings in 7 categories. 26 are labelled by hand, 226 by a local LLM (Qwen3.5-9B through
+  llama.cpp, `scripts/llm_prelabel.py`). On 18 postings checked against the hand labels the LLM agreed 14 times
+  (95% interval 55% to 91%, `docs/LLM_LABEL_CHECK.md`).
+- **Method:** repeated stratified group k-fold (5 x 5), TF-IDF fitted inside every fold, near-duplicate postings kept
+  in the same fold, plus a shuffled-label control.
+- **Result:** logistic regression reaches accuracy 0.60 and macro-F1 0.56, a random forest 0.56 and 0.39, and always
+  guessing the most frequent class 0.26 and 0.06. The pipeline therefore uses logistic regression.
+- **What this does and does not show:** the scores measure agreement with mostly LLM-made labels, not with the truth.
+  The data set is small and comes from one scrape of two job APIs, and roles on the border between categories
+  (account managers, product managers, designers) are labelled inconsistently. See the limitations in
+  `docs/RESULTS.md`.
+
 ## Tech stack
 
 - **Language:** Python 3.11
 - **Scraping:** Playwright (async), public job-board APIs
 - **Storage:** PostgreSQL 16 (JSONB + structured columns)
 - **LLM extraction:** llama.cpp server, grammar-constrained (GBNF) JSON output
-- **Classical ML:** scikit-learn (TF-IDF, RandomForest, KMeans)
+- **Classical ML:** scikit-learn (TF-IDF, logistic regression, KMeans)
 - **Scoring:** config-driven weighted formula → optional learned Ridge regression
 - **Reporting:** Google Sheets (gspread / Apps Script)
 - **Orchestration:** Docker Compose (local) → portable to any container host

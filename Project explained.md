@@ -123,8 +123,9 @@ find patterns in word frequency.
   (counting word patterns, not reading for meaning), so it's fast and cheap
   but has no real understanding — it just notices "these documents use
   similar words."
-- **Category labeling** — each posting gets tagged into a broad bucket like
-  `tech_product`, `admin_support`, `customer_retail`, or `other`.
+- **Category labeling** — each posting gets tagged into one of seven broad buckets:
+  `software_engineering`, `data_ai_ml`, `devops_cloud_security`, `sales_marketing`,
+  `customer_support_admin`, `management_finance_hr` or `other`.
 
 **Is this AI?** Technically yes, it's "machine learning," but it's a
 fundamentally different, much dumber kind than the language model in Stage

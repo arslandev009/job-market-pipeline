@@ -18,11 +18,11 @@ posting text), but they answer different questions.
 
 - **`features.py`** — shared TF-IDF vectorization (unigrams + bigrams, so
   "machine learning" is captured as one signal, not two unrelated words).
-- **`classify.py`** — a RandomForest classifier trained on whatever you've
-  hand-labeled via `scripts/label_batch.py`. Includes 5-fold cross-validation
-  so you get an honest accuracy estimate before trusting it on new data, and
-  refuses to train at all below a minimum label count (better to say "not
-  enough data yet" than silently produce garbage).
+- **`classify.py`** — a logistic regression classifier (it replaced a RandomForest after the evaluation in
+  `docs/RESULTS.md`), trained on the hand-labeled and LLM-labeled postings (`scripts/label_batch.py`,
+  `scripts/llm_prelabel.py`). The accuracy estimate lives in `scripts/evaluate_classifier.py`, not in this
+  module, and training refuses to run below a minimum label count (better to say "not enough data yet"
+  than silently produce garbage).
 - **`cluster.py`** — KMeans clustering with `k` from Phase 4's elbow curve,
   plus a human-readable summary of each cluster's top TF-IDF terms (so you can
   eyeball "oh, cluster 2 is basically all senior backend roles").

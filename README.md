@@ -50,9 +50,9 @@ This project is being built in phases, tracked in [`docs/PROGRESS.md`](docs/PROG
 | 8 — Google Sheets reporting | ✅ |
 | 9 — Scheduling, observability, deployment | ✅ |
 
-Code is complete and unit-tested (`pytest` — 13/13 passing, pure logic, no
-Docker required). **Nothing has been run end-to-end against live Postgres/LLM
-yet** — that's the next step, and `docs/RUNBOOK.md` walks through it exactly.
+Code is unit-tested (`pytest`, pure logic, no Docker required). The pipeline has been run on the local Docker
+stack: on a first dataset in August 2026, and in November 2026 for scraping, labelling, classifier training and
+the evaluation described below. `docs/RUNBOOK.md` walks through the full sequence.
 
 ## Quickstart
 

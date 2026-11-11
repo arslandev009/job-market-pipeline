@@ -36,10 +36,19 @@ def test_skill_match_no_overlap():
     assert score == 0.0
 
 
-def test_skill_match_unknown_requirements_is_neutral():
+def test_skill_match_unknown_requirements_scores_below_neutral():
+    # Since 2026-08-14 (see skill_match_score): no extracted requirements read as uncertainty, not as a reward.
     posting = make_posting(required_skills=[])
     score = skill_match_score(posting, ["python"])
-    assert score == 0.5
+    assert score == 0.3
+
+
+def test_skill_match_unknown_ranks_between_no_match_and_partial_match():
+    unknown = skill_match_score(make_posting(required_skills=[]), ["python"])
+    no_match = skill_match_score(make_posting(required_skills=["java", "php"]), ["python"])
+    partial = skill_match_score(
+        make_posting(required_skills=["python", "sql", "docker", "aws", "go"]), ["python", "sql"])
+    assert no_match < unknown < partial
 
 
 def test_salary_fit_no_floor_always_passes():
